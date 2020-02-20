@@ -67,6 +67,7 @@ class Dataset:
         self.train_samples = self.df.loc[:train_nums, :]
         self.test_samples = self.df.loc[train_nums:, :]
 
+
 if __name__ == '__main__':
     ratio = 0.8
     data = Dataset(DATA_PATH/TRAIN_OFF_FILE, ratio)
