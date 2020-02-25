@@ -9,6 +9,9 @@ class Model:
     def construct_model(self):
         pass
 
+    def lr_model(self):
+        pass
+
     def inference(self):
         pass
 

@@ -11,67 +11,84 @@ TRAIN_OFF_FILE = r'data/raw/ccf_offline_stage1_train.csv'
 TRAIN_ON_FILE = r'data/raw/ccf_online_stage1_train.csv'
 SAMPLE_FILE = r"data/raw/sample_submission.csv"
 
-print(os.path.exists(DATA_PATH))
-print(os.path.exists(DATA_PATH/TRAIN_OFF_FILE))
-print(os.path.exists(DATA_PATH/TRAIN_ON_FILE))
-print(os.path.exists(DATA_PATH/SAMPLE_FILE))
+# print(os.path.exists(DATA_PATH))
+# print(os.path.exists(DATA_PATH/TRAIN_OFF_FILE))
+# print(os.path.exists(DATA_PATH/TRAIN_ON_FILE))
+# print(os.path.exists(DATA_PATH/SAMPLE_FILE))
 
 
 class Dataset:
-    def __init__(self, file_path, ratio):
-        df = pd.read_csv(file_path)
-        self._convert_datetime(df)
-        self._clean_nan_value(df, ['Distance'])
-        self.pos_samples = self._get_positive_sample(df)
+    """
+    read in the raw data; convert each col to valid data type; clean the useless samples
+    is able to split pos/neg samples and train/test sets
+    """
+    def __init__(self, file_path):
+        self.df = pd.read_csv(file_path)
+        self._convert_datetime()
+        self._clean_nan_value( ['Distance','Discount_rate'], [-1, '1'])
+        self.clean_non_numeric_vale(['Discount_rate'])
+        self.pos_samples = self._get_positive_sample()
         self.pos_nums = self.pos_samples.shape[0]
-        self.neg_samples = self._get_negative_sample(df)
+        self.neg_samples = self._get_negative_sample()
         self.neg_nums = self.neg_samples.shape[0]
         self.df = pd.concat([self.neg_samples, self.pos_samples])
-        self._split_dataset(ratio)
+        self._transform_time_feature()
+        # print(self.df.head())
+        # print(self.df.info())
 
     def _int2datetime(self, x):
         if math.isnan(x):
-            return x
+            return None
         y = int(x / 10000)
         m = int(x % 10000 / 100)
         d = int(x % 100)
         return date(y, m, d)
 
-    def _convert_datetime(self, df):
-        if 'Date_received' in df.columns:
-            df['Date_received'] = df['Date_received'].apply(self._int2datetime)
-        if 'Date' in df.columns:
-            df['Date'] = df['Date'].apply(self._int2datetime)
+    def _convert_datetime(self):
+        if 'Date_received' in self.df.columns:
+            self.df['Date_received'] = pd.to_datetime(self.df['Date_received'].apply(self._int2datetime))
+        if 'Date' in self.df.columns:
+            self.df['Date'] = pd.to_datetime(self.df['Date'].apply(self._int2datetime))
 
-    def _get_negative_sample(self, df):
-        neg_df = df.loc[~df['Coupon_id'].isnull() & df['Date'].isnull()]
-        pos_df = df.loc[~df['Coupon_id'].isnull() & ~df['Date'].isnull()]
+    def _convert_discount(self, str):
+        if ':' in str:
+            discount = str.split(sep=':')
+            return (1 - float(discount[1]) / float(discount[0]))
+        else:
+            return float(str)
+
+    def clean_non_numeric_vale(self, columns):
+        for col in columns:
+            self.df[col] = self.df[col].apply(self._convert_discount)
+
+    def _clean_nan_value(self, columns, new_vals):
+        # print(columns)
+        for col,val in zip(columns, new_vals):
+            self.df.loc[self.df[col].isnull(), col] = val
+
+    def _get_negative_sample(self):
+        neg_df = self.df.loc[~self.df['Coupon_id'].isnull() & self.df['Date'].isnull()]
+        pos_df = self.df.loc[~self.df['Coupon_id'].isnull() & ~self.df['Date'].isnull()]
         timeout_df = pos_df.loc[(pos_df['Date'] - pos_df['Date_received']).apply(lambda x: x.days > 15)]
-        return pd.concat([neg_df, timeout_df])
+        neg_df = pd.concat([neg_df, timeout_df])
+        neg_df['label'] = [0]*neg_df.shape[0]
+        return neg_df
 
     # only 7% are positive samples
-    def _get_positive_sample(self, df):
-        pos_df = df.loc[~df['Coupon_id'].isnull() & ~df['Date'].isnull()]
+    def _get_positive_sample(self):
+        pos_df = self.df.loc[~self.df['Coupon_id'].isnull() & ~self.df['Date'].isnull()]
         pos_df = pos_df.loc[(pos_df['Date'] - pos_df['Date_received']).apply(lambda x: x.days <= 15)]
+        pos_df['label'] = [1]*pos_df.shape[0]
         return pos_df
 
-    def _clean_nan_value(self, df, columns):
-        # print(columns)
-        for col in columns:
-            df.loc[df[col].isnull(), col] = -1
+    def _transform_time_feature(self):
+        self.df['DoW'] = self.df['Date_received'].dt.dayofweek
+        self.df['DoM'] = self.df['Date_received'].dt.month
+        self.df.drop(['Date', 'Date_received'], axis=1, inplace=True)
 
-    def _split_dataset(self, ratio):
-        df = self.df.sample(frac=1).reset_index(drop=True)
-        len = self.df.shape[0]
-        train_nums = math.ceil(len * ratio)
-        self.train_samples = self.df.loc[:train_nums, :]
-        self.test_samples = self.df.loc[train_nums:, :]
 
 
 if __name__ == '__main__':
-    ratio = 0.8
-    data = Dataset(DATA_PATH/TRAIN_OFF_FILE, ratio)
-    print(data.neg_nums)
-    print(data.pos_nums)
-    print(data.train_samples.shape[0])
-    print(data.test_samples.shape[0])
+    data = Dataset(DATA_PATH/TRAIN_OFF_FILE)
+    # print(data.neg_nums)
+    # print(data.pos_nums)
