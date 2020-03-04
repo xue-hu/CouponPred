@@ -6,10 +6,8 @@ class Model:
     def __init__(self):
         pass
 
-    def construct_model(self):
-        pass
-
-    def lr_model(self):
+    @classmethod
+    def lr_model(cls):
         pass
 
     def inference(self):

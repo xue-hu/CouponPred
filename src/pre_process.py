@@ -3,7 +3,7 @@ import os
 from datetime import date
 import math
 from pathlib import Path
-
+import tensorflow as tf
 
 DATA_PATH = Path(os.getcwd()).parent
 TEST_FILE = r'data/raw/ccf_offline_stage1_test_revised.csv'
@@ -22,17 +22,22 @@ class Dataset:
     read in the raw data; convert each col to valid data type; clean the useless samples
     is able to split pos/neg samples and train/test sets
     """
-    def __init__(self, file_path):
+    def __init__(self, file_path, ratio=0.9):
         self.df = pd.read_csv(file_path)
         self._convert_datetime()
         self._clean_nan_value( ['Distance','Discount_rate'], [-1, '1'])
-        self.clean_non_numeric_vale(['Discount_rate'])
+        self._clean_non_numeric_value(['Discount_rate'])
         self.pos_samples = self._get_positive_sample()
         self.pos_nums = self.pos_samples.shape[0]
         self.neg_samples = self._get_negative_sample()
         self.neg_nums = self.neg_samples.shape[0]
         self.df = pd.concat([self.neg_samples, self.pos_samples])
+        self.df = self.df.sample(frac=1).reset_index(drop=True)
+        self.df = self.df.astype({"Coupon_id": int})
         self._transform_time_feature()
+        len = int(self.df.shape[0] * ratio)
+        self.train_df = self.df[:len]
+        self.test_df = self.df[len:]
         # print(self.df.head())
         # print(self.df.info())
 
@@ -57,7 +62,7 @@ class Dataset:
         else:
             return float(str)
 
-    def clean_non_numeric_vale(self, columns):
+    def _clean_non_numeric_value(self, columns):
         for col in columns:
             self.df[col] = self.df[col].apply(self._convert_discount)
 
@@ -86,6 +91,23 @@ class Dataset:
         self.df['DoM'] = self.df['Date_received'].dt.month
         self.df.drop(['Date', 'Date_received'], axis=1, inplace=True)
 
+    def generate_feature_cols(self):
+        cat_cols = ['User_id', 'Merchant_id', 'Coupon_id', 'DoW', 'DoM']
+        num_cols = ['Discount_rate', 'Distance']
+        one_hot_cols = [tf.feature_column.indicator_column(tf.feature_column.categorical_column_with_hash_bucket
+                                                           ('Merchant_id', hash_bucket_size=8900,
+                                                            dtype=tf.dtypes.int64)) ]
+        one_hot_cols += [tf.feature_column.indicator_column(tf.feature_column.categorical_column_with_hash_bucket
+                                                            ('Coupon_id', hash_bucket_size=15000,
+                                                             dtype=tf.dtypes.int64))]
+        one_hot_cols += [tf.feature_column.indicator_column(tf.feature_column.categorical_column_with_hash_bucket
+                                                            ('User_id', hash_bucket_size=7400000,
+                                                             dtype=tf.dtypes.int64))]
+        # one_hot_cols += [tf.feature_column.indicator_column(tf.feature_column.categorical_column_with_hash_bucket
+        #                                                     (col, hash_bucket_size=7400000,
+        #                                                      dtype=tf.dtypes.int64)) for col in ['DoW', 'DoM']]
+        feature_cols = [tf.feature_column.numeric_column(k) for k in num_cols]
+        return feature_cols + one_hot_cols
 
 
 if __name__ == '__main__':
